@@ -180,10 +180,17 @@ ${TCP_KEEPINTVL:+tcp_keepintvl = ${TCP_KEEPINTVL}\n}\
 ${TCP_USER_TIMEOUT:+tcp_user_timeout = ${TCP_USER_TIMEOUT}\n}\
 ################## end file ##################
 " >> "${PG_CONFIG_FILE}"
-  cat "${PG_CONFIG_FILE}"
+  cat "${PG_CONFIG_FILE}" >&2
 fi
 
-# Run PGBouncer with stderr piped through JSON logger to stdout
-# This ensures Railway correctly classifies log levels
-echo "Starting PGBouncer with JSON logging..."
-exec "$@" 2>&1 | /json-logger.sh
+# Run PGBouncer with all output piped through JSON logger to stdout.
+# Use a FIFO so that PGBouncer runs as PID 1 (via exec) for proper signal handling,
+# while the JSON logger reads from the FIFO in the background.
+LOG_FIFO=/tmp/pgbouncer-log
+mkfifo "$LOG_FIFO"
+
+# Start JSON logger reading from FIFO in background
+/json-logger.sh < "$LOG_FIFO" &
+
+# Replace this shell with PGBouncer, redirecting both stdout and stderr to the FIFO
+exec "$@" > "$LOG_FIFO" 2>&1
